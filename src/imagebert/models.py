@@ -54,7 +54,7 @@ class ImageBertModel(BertModel):
 
         self.sep_embedding=None
 
-    def create_sep_embedding(self,pretrained_model_name_or_path:str):
+    def setup_sep_embedding(self,pretrained_model_name_or_path:str):
         """
         [SEP]トークンのEmbeddingを作成する。
         """
@@ -232,7 +232,7 @@ class ImageBertForMultipleChoice(BertPreTrainedModel):
 
     def initialize_from_pretrained(self,pretrained_model_name_or_path:str,*model_args,**kwargs):
         self.imbert=ImageBertModel.from_pretrained(pretrained_model_name_or_path,*model_args,**kwargs)
-        self.imbert.create_sep_embedding(pretrained_model_name_or_path)
+        self.imbert.setup_sep_embedding(pretrained_model_name_or_path)
 
     def to(self,device:torch.device):
         super().to(device)
