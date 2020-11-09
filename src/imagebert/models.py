@@ -54,7 +54,7 @@ class ImageBertModel(BertModel):
 
         self.sep_embedding=None
 
-    def setup_sep_embedding(self,pretrained_model_name_or_path:str):
+    def __setup_sep_embedding(self,pretrained_model_name_or_path:str):
         """
         [SEP]トークンのEmbeddingを作成する。
         """
@@ -70,6 +70,16 @@ class ImageBertModel(BertModel):
         word_embeddings=bert_model.get_input_embeddings()
         self.sep_embedding=word_embeddings(input_ids)
         self.sep_embedding=torch.squeeze(self.sep_embedding)
+
+    @classmethod
+    def create_from_pretrained(cls,pretrained_model_name_or_path,*model_args,**kwargs)->"ImageBertModel":
+        """
+        事前学習済みのモデルからパラメータを読み込み、ImageBERTのモデルを作成する。
+        """
+        model=ImageBertModel.from_pretrained(pretrained_model_name_or_path,*model_args,**kwargs)
+        model.__setup_sep_embedding(pretrained_model_name_or_path)
+
+        return model
 
     def to(self,device:torch.device):
         super().to(device)
@@ -230,9 +240,11 @@ class ImageBertForMultipleChoice(BertPreTrainedModel):
 
         self.init_weights()
 
-    def initialize_from_pretrained(self,pretrained_model_name_or_path:str,*model_args,**kwargs):
-        self.imbert=ImageBertModel.from_pretrained(pretrained_model_name_or_path,*model_args,**kwargs)
-        self.imbert.setup_sep_embedding(pretrained_model_name_or_path)
+    def setup_image_bert(self,pretrained_model_name_or_path,*model_args,**kwargs):
+        """
+        パラメータを事前学習済みのモデルから読み込んでImageBERTのモデルを作成する。
+        """
+        self.imbert=ImageBertModel.create_from_pretrained(pretrained_model_name_or_path,*model_args,**kwargs)
 
     def to(self,device:torch.device):
         super().to(device)
