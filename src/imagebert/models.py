@@ -7,6 +7,7 @@ from transformers import(
     BertModel,
     BertPreTrainedModel
 )
+from transformers.modeling_bert import BertPreTrainingHeads
 
 default_logger=logging.getLogger(__name__)
 default_logger.setLevel(level=logging.INFO)
@@ -52,7 +53,8 @@ class ImageBertModel(BertModel):
         self.wh_tensor[3]=image_height
         self.wh_tensor[4]=image_width*image_height
 
-        self.sep_embedding=None
+        self.sep_embedding=None #create_from_pretrained()でモデルを作成すると有効になる。
+        self.attention_mask=None    #forward()実行時に更新される。
 
     def __setup_sep_embedding(self,pretrained_model_name_or_path:str):
         """
@@ -80,6 +82,14 @@ class ImageBertModel(BertModel):
         model.__setup_sep_embedding(pretrained_model_name_or_path)
 
         return model
+
+    def get_attention_mask(self)->torch.Tensor:
+        """
+        Attention Maskを返す。
+        Attention Maskはforward()実行時に更新されるので、
+        forward()実行後にこのメソッドを使用すること。
+        """
+        return self.attention_mask
 
     def to(self,device:torch.device):
         super().to(device)
@@ -214,6 +224,8 @@ class ImageBertModel(BertModel):
         embeddings=self.__create_embeddings(input_ids,roi_boxes,roi_features,max_num_rois)
         attention_mask=self.__create_attention_mask(input_ids,roi_boxes,max_num_rois)
 
+        self.attention_mask=attention_mask
+
         return_dict=return_dict if return_dict is not None else self.config.use_return_dict
         ret=super().forward(
             inputs_embeds=embeddings,
@@ -229,9 +241,7 @@ class ImageBertForMultipleChoice(BertPreTrainedModel):
     ImageBertModelのトップに全結合層をつけたもの
     BertForMultipleChoiceのImageBERT版
     """
-    def __init__(
-        self,
-        config:BertConfig):
+    def __init__(self,config:BertConfig):
         super().__init__(config)
 
         self.imbert=ImageBertModel(config)
