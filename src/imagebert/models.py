@@ -108,7 +108,7 @@ class ImageBertModel(BertModel):
         input_ids:torch.Tensor, #(N,BERT_MAX_SEQ_LENGTH)
         roi_boxes:torch.Tensor, #(N,max_num_rois,4)
         roi_features:torch.Tensor,   #(N,max_num_rois,roi_features_dim)
-        max_num_rois:int)->torch.Tensor:
+    )->torch.Tensor:
         """
         入力Embeddingを作成する。
         """
@@ -119,6 +119,7 @@ class ImageBertModel(BertModel):
         dropout=self.embeddings.dropout
 
         batch_size=input_ids.size(0)
+        max_num_rois=roi_boxes.size(1)
 
         v_position_embeddings=position_embeddings(self.position_ids)
         v_text_token_type_ids_embeddings=token_type_ids_embeddings(self.text_token_type_ids)
@@ -187,7 +188,7 @@ class ImageBertModel(BertModel):
         self,
         input_ids:torch.Tensor, #(N,BERT_MAX_SEQ_LENGTH)
         roi_boxes:torch.Tensor, #(N,max_num_rois,4)
-        max_num_rois:int)->torch.Tensor:
+    )->torch.Tensor:
         """
         attention_maskを作成する。
         """
@@ -196,6 +197,7 @@ class ImageBertModel(BertModel):
         
         #RoI部分
         batch_size=roi_boxes.size(0)
+        max_num_rois=roi_boxes.size(1)
         roi_attention_mask=torch.empty(batch_size,max_num_rois,dtype=torch.long).to(self.device)
         for i in range(batch_size):
             for j in range(max_num_rois):
@@ -218,11 +220,10 @@ class ImageBertModel(BertModel):
         input_ids:torch.Tensor, #(N,BERT_MAX_SEQ_LENGTH)
         roi_boxes:torch.Tensor,    #(N,max_num_rois,4)
         roi_features:torch.Tensor,  #(N,max_num_rois,roi_features_dim)
-        max_num_rois:int,   #入力するRoIの最大数
         output_hidden_states:bool=None,
         return_dict:bool=None):
-        embeddings=self.__create_embeddings(input_ids,roi_boxes,roi_features,max_num_rois)
-        attention_mask=self.__create_attention_mask(input_ids,roi_boxes,max_num_rois)
+        embeddings=self.__create_embeddings(input_ids,roi_boxes,roi_features)
+        attention_mask=self.__create_attention_mask(input_ids,roi_boxes)
 
         self.attention_mask=attention_mask
 
@@ -269,7 +270,6 @@ class ImageBertForMultipleChoice(BertPreTrainedModel):
         roi_boxes:torch.Tensor,    #(N,num_choices,max_num_rois,4)
         roi_features:torch.Tensor,  #(N,num_choices,max_num_rois,roi_features_dim)
         labels:torch.Tensor,
-        max_num_rois:int,   #入力するRoIの最大数
         output_hidden_states:bool=None,
         return_dict:bool=None):
         num_choices=input_ids.size(1)
@@ -281,7 +281,6 @@ class ImageBertForMultipleChoice(BertPreTrainedModel):
             input_ids,
             roi_boxes,
             roi_features,
-            max_num_rois,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict
         )
