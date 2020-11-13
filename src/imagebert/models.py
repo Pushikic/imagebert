@@ -53,25 +53,11 @@ class ImageBertModel(BertModel):
         self.wh_tensor[3]=image_height
         self.wh_tensor[4]=image_width*image_height
 
-        self.sep_embedding=None #create_from_pretrained()でモデルを作成すると有効になる。
-        self.attention_mask=None    #forward()実行時に更新される。
-
-    def __setup_sep_embedding(self,pretrained_model_name_or_path:str):
-        """
-        [SEP]トークンのEmbeddingを作成する。
-        """
-        logger=self.logger
-
-        logger.info("[SEP]トークンのEmbeddingを作成します。")
-
-        tokenizer=BertJapaneseTokenizer.from_pretrained(pretrained_model_name_or_path)
-        bert_model=BertModel.from_pretrained(pretrained_model_name_or_path)
-
-        input_ids=torch.tensor([tokenizer.sep_token_id])
-
-        word_embeddings=bert_model.get_input_embeddings()
-        self.sep_embedding=word_embeddings(input_ids)
-        self.sep_embedding=torch.squeeze(self.sep_embedding)
+        #create_from_pretrained()でモデルを作成するか
+        #set_sep_token_id()で明示的に設定すると有効になる。
+        self.sep_token_id=None
+        #forward()実行時に更新される。
+        self.attention_mask=None
 
     @classmethod
     def create_from_pretrained(cls,pretrained_model_name_or_path,*model_args,**kwargs)->"ImageBertModel":
@@ -79,9 +65,15 @@ class ImageBertModel(BertModel):
         事前学習済みのモデルからパラメータを読み込み、ImageBERTのモデルを作成する。
         """
         model=ImageBertModel.from_pretrained(pretrained_model_name_or_path,*model_args,**kwargs)
-        model.__setup_sep_embedding(pretrained_model_name_or_path)
+        
+        #[SEP]トークンのIDを取得する。
+        tokenizer=BertJapaneseTokenizer.from_pretrained(pretrained_model_name_or_path)
+        model.sep_token_id=tokenizer.sep_token_id
 
         return model
+
+    def set_sep_token_id(self,sep_token_id:int):
+        self.sep_token_id=sep_token_id
 
     def get_attention_mask(self)->torch.Tensor:
         """
@@ -100,8 +92,6 @@ class ImageBertModel(BertModel):
         self.text_token_type_ids=self.text_token_type_ids.to(device)
         self.roi_token_type_ids=self.roi_token_type_ids.to(device)
         self.wh_tensor=self.wh_tensor.to(device)
-        if self.sep_embedding is not None:
-            self.sep_embedding=self.sep_embedding.to(device)
 
     def __create_embeddings(
         self,
@@ -118,6 +108,8 @@ class ImageBertModel(BertModel):
         layer_norm=self.embeddings.LayerNorm
         dropout=self.embeddings.dropout
 
+        device=input_ids.device
+
         batch_size=input_ids.size(0)
         max_num_rois=roi_boxes.size(1)
 
@@ -133,7 +125,7 @@ class ImageBertModel(BertModel):
         #(N,max_num_rois,hidden_size)
 
         #RoIの座標から(RoIの)Position Embeddingを作成する。
-        roi_position_embeddings=torch.empty(batch_size,max_num_rois,5).to(self.device)
+        roi_position_embeddings=torch.empty(batch_size,max_num_rois,5).to(device)
         for i in range(batch_size):
             for j in range(max_num_rois):
                 x_tl=roi_boxes[i,j,0]
@@ -162,9 +154,13 @@ class ImageBertModel(BertModel):
         #(N,BERT_MAX_SEQ_LENGTH,hidden_size)
 
         #[SEP]トークンのEmbeddingを入れる。
-        if self.sep_embedding is not None:
-            text_roi_embeddings[:,BERT_MAX_SEQ_LENGTH-max_num_rois-1]=self.sep_embedding.detach()
-            text_roi_embeddings[:,-1]=self.sep_embedding.detach()
+        if self.sep_token_id is not None:
+            sep_input_ids=torch.Tensor([self.sep_token_id],dtype=torch.long).to(device)
+            sep_embedding=word_embeddings(sep_input_ids)
+            sep_embedding=torch.squeeze(sep_embedding)
+
+            text_roi_embeddings[:,BERT_MAX_SEQ_LENGTH-max_num_rois-1]=sep_embedding.detach()
+            text_roi_embeddings[:,-1]=sep_embedding.detach()
 
         trunc_text_token_type_ids_embeddings=v_text_token_type_ids_embeddings[:BERT_MAX_SEQ_LENGTH-max_num_rois]
         trunc_roi_token_type_ids_embeddings=v_roi_token_type_ids_embeddings[BERT_MAX_SEQ_LENGTH-max_num_rois:]
@@ -192,13 +188,15 @@ class ImageBertModel(BertModel):
         """
         attention_maskを作成する。
         """
+        device=input_ids.device
+
         #テキスト部分
-        text_attention_mask=(input_ids!=0).long().to(self.device)
+        text_attention_mask=(input_ids!=0).long().to(device)
         
         #RoI部分
         batch_size=roi_boxes.size(0)
         max_num_rois=roi_boxes.size(1)
-        roi_attention_mask=torch.empty(batch_size,max_num_rois,dtype=torch.long).to(self.device)
+        roi_attention_mask=torch.empty(batch_size,max_num_rois,dtype=torch.long).to(device)
         for i in range(batch_size):
             for j in range(max_num_rois):
                 roi_box=roi_boxes[i,j]  #(4)
@@ -218,22 +216,41 @@ class ImageBertModel(BertModel):
     def forward(
         self,
         input_ids:torch.Tensor, #(N,BERT_MAX_SEQ_LENGTH)
-        roi_boxes:torch.Tensor,    #(N,max_num_rois,4)
-        roi_features:torch.Tensor,  #(N,max_num_rois,roi_features_dim)
+        token_type_ids:torch.Tensor=None,   #(N,BERT_MAX_SEQ_LENGTH)
+        roi_boxes:torch.Tensor=None,    #(N,max_num_rois,4)
+        roi_features:torch.Tensor=None,  #(N,max_num_rois,roi_features_dim)
         output_hidden_states:bool=None,
         return_dict:bool=None):
-        embeddings=self.__create_embeddings(input_ids,roi_boxes,roi_features)
-        attention_mask=self.__create_attention_mask(input_ids,roi_boxes)
+        """
+        roi_boxesおよびroi_featuresを設定しない場合、
+        普通のBERTモデル(テキストのみで動作する)になる。
+        """
+        device=input_ids.device
 
-        self.attention_mask=attention_mask
+        ret=None
+        #テキストのみで動作させる場合
+        if roi_boxes is None or roi_features is None:
+            attention_mask=(input_ids!=0).long().to(device)
+            self.attention_mask=attention_mask
 
-        return_dict=return_dict if return_dict is not None else self.config.use_return_dict
-        ret=super().forward(
-            inputs_embeds=embeddings,
-            attention_mask=attention_mask,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict
-        )
+            ret=super().forward(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids
+            )
+        #RoIのデータも入力する場合
+        else:
+            embeddings=self.__create_embeddings(input_ids,roi_boxes,roi_features)
+            attention_mask=self.__create_attention_mask(input_ids,roi_boxes)
+            self.attention_mask=attention_mask
+
+            return_dict=return_dict if return_dict is not None else self.config.use_return_dict
+            ret=super().forward(
+                inputs_embeds=embeddings,
+                attention_mask=attention_mask,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict
+            )
 
         return ret
 
@@ -267,9 +284,10 @@ class ImageBertForMultipleChoice(BertPreTrainedModel):
     def forward(
         self,
         input_ids:torch.Tensor, #(N,num_choices,BERT_MAX_SEQ_LENGTH)
-        roi_boxes:torch.Tensor,    #(N,num_choices,max_num_rois,4)
-        roi_features:torch.Tensor,  #(N,num_choices,max_num_rois,roi_features_dim)
-        labels:torch.Tensor,
+        labels:torch.Tensor,    #(N)
+        token_type_ids:torch.Tensor=None,   #(N,num_choices,BERT_MAX_SEQ_LENGTH)
+        roi_boxes:torch.Tensor=None,    #(N,num_choices,max_num_rois,4)
+        roi_features:torch.Tensor=None,  #(N,num_choices,max_num_rois,roi_features_dim)
         output_hidden_states:bool=None,
         return_dict:bool=None):
         num_choices=input_ids.size(1)
@@ -278,9 +296,10 @@ class ImageBertForMultipleChoice(BertPreTrainedModel):
         roi_features=roi_features.view(-1,roi_features.size(-2),roi_features.size(-1))    #(N*num_choices,max_num_rois,roi_features_dim)
 
         outputs=self.imbert(
-            input_ids,
-            roi_boxes,
-            roi_features,
+            input_ids=input_ids,
+            token_type_ids=token_type_ids,
+            roi_boxes=roi_boxes,
+            roi_features=roi_features,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict
         )
