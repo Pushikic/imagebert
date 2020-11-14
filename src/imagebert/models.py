@@ -1,4 +1,3 @@
-import logging
 import random
 import torch
 import torch.nn as nn
@@ -10,9 +9,6 @@ from transformers import(
 )
 from transformers.modeling_bert import BertPreTrainingHeads
 from typing import Tuple
-
-default_logger=logging.getLogger(__name__)
-default_logger.setLevel(level=logging.INFO)
 
 BERT_MAX_SEQ_LENGTH=512 #BERTに入力するシーケンスの最大長
 
@@ -27,9 +23,8 @@ class ImageBertModel(BertModel):
         roi_features_dim:int=1024,  #RoI特徴量の次元
         image_width:int=256,    #元画像の幅
         image_height:int=256,   #元画像の高さ
-        logger:logging.Logger=default_logger):
+    ):
         super().__init__(config,add_pooling_layer=add_pooling_layer)
-        self.logger=logger
         self.roi_features_dim=roi_features_dim
 
         #FC層の作成
