@@ -74,7 +74,7 @@ def load_roi_info_from_files(
 
     ret_roi_boxes=torch.empty(batch_size,max_num_rois,4).to(device)
     ret_roi_features=torch.empty(batch_size,max_num_rois,roi_features_dim).to(device)
-    ret_roi_labels=torch.empty(batch_size,max_num_rois).to(device)
+    ret_roi_labels=torch.empty(batch_size,max_num_rois,dtype=torch.long).to(device)
 
     for i in range(batch_size):
         #RoIの座標情報と特徴量をファイルから読み込む。
