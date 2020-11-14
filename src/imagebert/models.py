@@ -157,7 +157,7 @@ class ImageBertModel(BertModel):
 
         #[SEP]トークンのEmbeddingを入れる。
         if self.sep_token_id is not None:
-            sep_input_ids=torch.Tensor([self.sep_token_id],dtype=torch.long).to(device)
+            sep_input_ids=torch.tensor([self.sep_token_id]).to(device)
             sep_embedding=word_embeddings(sep_input_ids)
             sep_embedding=torch.squeeze(sep_embedding)
 
@@ -331,17 +331,25 @@ class ImageBertForPreTraining(BertPreTrainedModel):
     """
     ImageBERTのPre-Trainingを行うためのクラス
     """
-    def __init__(self,config:BertConfig):
+    def __init__(self,config:BertConfig,roi_features_dim:int=1024):
         super().__init__(config)
 
         self.imbert=ImageBertModel(config)
         self.cls=BertPreTrainingHeads(config)
+        self.fc_mrfr=nn.Linear(config.hidden_size,roi_features_dim)
 
         self.init_weights()
 
         #setup_image_bert()でモデルをセットアップするか
         #set_mask_token_id()で明示的に設定すると有効になる。
         self.mask_token_id=None
+
+    def to(self,device:torch.device):
+        super().to(device)
+
+        self.imbert.to(device)
+        self.cls.to(device)
+        self.fc_mrfr.to(device)
 
     def setup_image_bert(self,pretrained_model_name_or_path,*model_args,**kwargs):
         """
@@ -547,6 +555,7 @@ class ImageBertForPreTraining(BertPreTrainedModel):
                 #マスクされているRoIトークンについてLossを計算する。
                 if masked_lm_oc_labels[i,j]!=-100:
                     input=sequence_output[i,j]
+                    input=self.fc_mrfr(input)
                     target=roi_features[i,j-(BERT_MAX_SEQ_LENGTH-max_num_rois)]
 
                     mrfr_loss+=criterion_mse(input,target)
