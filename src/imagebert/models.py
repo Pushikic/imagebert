@@ -437,7 +437,7 @@ class ImageBertForPreTraining(BertPreTrainedModel):
         roi_boxes:torch.Tensor, #(N,max_num_rois,4)
         roi_features:torch.Tensor,  #(N,max_num_rois,roi_features_dim)
         roi_labels:torch.Tensor,    #(N,max_num_rois)
-        create_negative_prob:float=0.5):   
+        create_negative_prob:float=0.3):   
         """
         Image-Text Matching (ITM)を行うための負例を作成する。
 
@@ -545,20 +545,26 @@ class ImageBertForPreTraining(BertPreTrainedModel):
         sequence_output,pooled_output=outputs[:2]
         prediction_scores,seq_relationship_score=self.cls(sequence_output,pooled_output)
 
-        masked_lm_oc_loss=criterion_ce(prediction_scores.view(-1,self.config.vocab_size),masked_lm_oc_labels.view(-1))
+        #MLMとMOCは正例についてのみ計算を行う。
+        masked_lm_oc_loss=0
+        if is_negative==False:
+            masked_lm_oc_loss=criterion_ce(prediction_scores.view(-1,self.config.vocab_size),masked_lm_oc_labels.view(-1))
+        
         itm_loss=criterion_ce(seq_relationship_score.view(-1,2),itm_labels.view(-1))
 
         #Masked Region Feature Regression (MRFR)
+        #正例についてのみ計算を行う。
         mrfr_loss=0
-        for i in range(batch_size):
-            for j in range(BERT_MAX_SEQ_LENGTH-max_num_rois,BERT_MAX_SEQ_LENGTH):
-                #マスクされているRoIトークンについてLossを計算する。
-                if masked_lm_oc_labels[i,j]!=-100:
-                    input=sequence_output[i,j]
-                    input=self.fc_mrfr(input)
-                    target=roi_features[i,j-(BERT_MAX_SEQ_LENGTH-max_num_rois)]
+        if is_negative==False:
+            for i in range(batch_size):
+                for j in range(BERT_MAX_SEQ_LENGTH-max_num_rois,BERT_MAX_SEQ_LENGTH):
+                    #マスクされているRoIトークンについてLossを計算する。
+                    if masked_lm_oc_labels[i,j]!=-100:
+                        input=sequence_output[i,j]
+                        input=self.fc_mrfr(input)
+                        target=roi_features[i,j-(BERT_MAX_SEQ_LENGTH-max_num_rois)]
 
-                    mrfr_loss+=criterion_mse(input,target)
+                        mrfr_loss+=criterion_mse(input,target)
 
         total_loss=masked_lm_oc_loss+itm_loss+mrfr_loss
 
