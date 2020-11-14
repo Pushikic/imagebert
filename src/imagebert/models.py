@@ -9,7 +9,6 @@ from transformers import(
     BertPreTrainedModel
 )
 from transformers.modeling_bert import BertPreTrainingHeads
-
 from typing import Tuple
 
 default_logger=logging.getLogger(__name__)
