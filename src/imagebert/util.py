@@ -36,11 +36,6 @@ def __trim_roi_tensor(
     出力Tensorのサイズ
     (max_num_rois,x)
     """
-    #RoIが存在しない場合
-    if tensor is None:
-        ret=torch.zeros(max_num_rois,tensor.size(-1)).to(device)
-        return ret
-
     num_rois=tensor.size(0)
 
     #RoIの数が制限よりも多い場合はTruncateする。
