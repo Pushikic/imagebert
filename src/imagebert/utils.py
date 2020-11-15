@@ -36,7 +36,7 @@ def load_roi_boxes_from_file(
     出力Tensorのサイズ
     (max_num_rois,4)
     """
-    roi_boxes=torch.load(roi_boxes_filepath)
+    roi_boxes=torch.load(roi_boxes_filepath,map_location=torch.device("cpu"))
     roi_boxes=__trim_roi_tensor(roi_boxes,max_num_rois)
     return roi_boxes
 
@@ -49,7 +49,7 @@ def load_roi_features_from_file(
     出力Tensorのサイズ
     (max_num_rois,x)    デフォルトではx=1024
     """
-    roi_features=torch.load(roi_features_filepath)
+    roi_features=torch.load(roi_features_filepath,map_location=torch.device("cpu"))
     roi_features=__trim_roi_tensor(roi_features,max_num_rois)
     return roi_features
 
@@ -62,7 +62,7 @@ def load_roi_labels_from_file(
     出力Tensorのサイズ
     (max_num_rois)
     """
-    roi_labels=torch.load(roi_labels_filepath)
+    roi_labels=torch.load(roi_labels_filepath,map_location=torch.device("cpu"))
     roi_labels=torch.unsqueeze(roi_labels,1)  #(num_rois,1)
     roi_labels=__trim_roi_tensor(roi_labels,max_num_rois)
     roi_labels=torch.squeeze(roi_labels)  #(max_num_rois)
