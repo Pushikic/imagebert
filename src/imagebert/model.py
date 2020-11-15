@@ -81,10 +81,6 @@ class ImageBertModel(BertModel):
 
         self.fc_roi_boxes.to(device)
         self.fc_roi_features.to(device)
-        self.position_ids=self.position_ids.to(device)
-        self.text_token_type_ids=self.text_token_type_ids.to(device)
-        self.roi_token_type_ids=self.roi_token_type_ids.to(device)
-        self.wh_tensor=self.wh_tensor.to(device)
 
     def __create_embeddings(
         self,
@@ -101,7 +97,14 @@ class ImageBertModel(BertModel):
         layer_norm=self.embeddings.LayerNorm
         dropout=self.embeddings.dropout
 
-        device=input_ids.device
+        device=self.fc_roi_boxes.weight.device
+        input_ids=input_ids.to(device)
+        roi_boxes=roi_boxes.to(device)
+        roi_features=roi_features.to(device)
+        self.position_ids=self.position_ids.to(device)
+        self.text_token_type_ids=self.text_token_type_ids.to(device)
+        self.roi_token_type_ids=self.roi_token_type_ids.to(device)
+        self.wh_tensor=self.wh_tensor.to(device)
 
         batch_size=input_ids.size(0)
         max_num_rois=roi_boxes.size(1)
@@ -181,7 +184,9 @@ class ImageBertModel(BertModel):
         """
         attention_maskを作成する。
         """
-        device=input_ids.device
+        device=self.fc_roi_boxes.weight.device
+        input_ids=input_ids.to(device)
+        roi_boxes=roi_boxes.to(device)
 
         #テキスト部分
         text_attention_mask=(input_ids!=0).long().to(device)
@@ -218,7 +223,14 @@ class ImageBertModel(BertModel):
         roi_boxesおよびroi_featuresを設定しない場合、
         普通のBERTモデル(テキストのみで動作する)になる。
         """
-        device=input_ids.device
+        device=self.fc_roi_boxes.weight.device
+        input_ids=input_ids.to(device)
+        if token_type_ids is not None:
+            token_type_ids=token_type_ids.to(device)
+        if roi_boxes is not None:
+            roi_boxes=roi_boxes.to(device)
+        if roi_features is not None:
+            roi_features=roi_features.to(device)
 
         ret=None
         #テキストのみで動作させる場合
@@ -246,4 +258,3 @@ class ImageBertModel(BertModel):
             )
 
         return ret
-
