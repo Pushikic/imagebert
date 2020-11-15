@@ -3,8 +3,7 @@ import torch.nn as nn
 from transformers import(
     BertConfig,
     BertTokenizer,
-    BertModel,
-    BertPreTrainedModel
+    BertModel
 )
 
 BERT_MAX_SEQ_LENGTH=512 #BERTに入力するシーケンスの最大長
@@ -248,73 +247,71 @@ class ImageBertModel(BertModel):
 
         return ret
 
-class ImageBertForMultipleChoice(BertPreTrainedModel):
+#===== ユーティリティ関数 =====
+def __trim_roi_tensor(
+    tensor:torch.Tensor,
+    max_num_rois:int)->torch.Tensor:
     """
-    ImageBertModelのトップに全結合層をつけたもの
-    BertForMultipleChoiceのImageBERT版
+    各バッチで含まれるRoIの数が異なると処理が面倒なので、max_num_roisに合わせる。
+    もしもmax_num_roisよりも多い場合には切り捨て、max_num_roisよりも少ない場合には0ベクトルで埋める。
+
+    入力Tensorのサイズ
+    (num_rois,x)
+
+    出力Tensorのサイズ
+    (max_num_rois,x)
     """
-    def __init__(self,config:BertConfig):
-        super().__init__(config)
+    num_rois=tensor.size(0)
 
-        self.imbert=ImageBertModel(config)
-        self.dropout=nn.Dropout(config.hidden_dropout_prob)
-        self.classifier=nn.Linear(config.hidden_size,1)
+    #RoIの数が制限よりも多い場合はTruncateする。
+    if num_rois>max_num_rois:
+        ret=tensor[:max_num_rois]
+    #RoIの数が制限よりも少ない場合は0ベクトルで埋める。
+    elif num_rois<max_num_rois:
+        zeros=torch.zeros(max_num_rois-num_rois,tensor.size(-1))
+        ret=torch.cat([tensor,zeros],dim=0)
+    else:
+        ret=tensor
 
-        self.init_weights()
+    return ret
 
-    def setup_image_bert(self,pretrained_model_name_or_path,*model_args,**kwargs):
-        """
-        パラメータを事前学習済みのモデルから読み込んでImageBERTのモデルを作成する。
-        """
-        self.imbert=ImageBertModel.create_from_pretrained(pretrained_model_name_or_path,*model_args,**kwargs)
+def load_roi_boxes_from_file(
+    roi_boxes_filepath:str,
+    max_num_rois:int)->torch.Tensor:
+    """
+    ファイルからRoIの座標情報を読み込む。
 
-    def to(self,device:torch.device):
-        super().to(device)
+    出力Tensorのサイズ
+    (max_num_rois,4)
+    """
+    roi_boxes=torch.load(roi_boxes_filepath)
+    roi_boxes=__trim_roi_tensor(roi_boxes,max_num_rois)
+    return roi_boxes
 
-        self.imbert.to(device)
-        self.dropout.to(device)
-        self.classifier.to(device)
+def load_roi_features_from_file(
+    roi_features_filepath:str,
+    max_num_rois:int)->torch.Tensor:
+    """
+    ファイルからRoIの特徴量を読み込む。
 
-    def forward(
-        self,
-        input_ids:torch.Tensor, #(N,num_choices,BERT_MAX_SEQ_LENGTH)
-        labels:torch.Tensor,    #(N)
-        token_type_ids:torch.Tensor=None,   #(N,num_choices,BERT_MAX_SEQ_LENGTH)
-        roi_boxes:torch.Tensor=None,    #(N,num_choices,max_num_rois,4)
-        roi_features:torch.Tensor=None,  #(N,num_choices,max_num_rois,roi_features_dim)
-        output_hidden_states:bool=None,
-        return_dict:bool=None):
-        num_choices=input_ids.size(1)
-        input_ids=input_ids.view(-1,input_ids.size(-1)) #(N*num_choices,BERT_MAX_SEQ_LENGTH)
-        roi_boxes=roi_boxes.view(-1,roi_boxes.size(-2),roi_boxes.size(-1)) #(N*num_choices,max_num_rois,4)
-        roi_features=roi_features.view(-1,roi_features.size(-2),roi_features.size(-1))    #(N*num_choices,max_num_rois,roi_features_dim)
+    出力Tensorのサイズ
+    (max_num_rois,x)    デフォルトではx=1024
+    """
+    roi_features=torch.load(roi_features_filepath)
+    roi_features=__trim_roi_tensor(roi_features,max_num_rois)
+    return roi_features
 
-        outputs=self.imbert(
-            input_ids=input_ids,
-            token_type_ids=token_type_ids,
-            roi_boxes=roi_boxes,
-            roi_features=roi_features,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict
-        )
+def load_roi_labels_from_file(
+    roi_labels_filepath:str,
+    max_num_rois:int)->torch.Tensor:
+    """
+    ファイルからRoIのラベルを読み込む。
 
-        pooled_output=outputs[1]
-
-        pooled_output=self.dropout(pooled_output)
-        logits=self.classifier(pooled_output)
-        reshaped_logits=logits.view(-1,num_choices)
-
-        criterion=nn.CrossEntropyLoss()
-        loss=criterion(reshaped_logits,labels)
-
-        if not return_dict:
-            output=(reshaped_logits,)+outputs[2:]
-            return ((loss,)+output) if loss is not None else output
-
-        ret={
-            "loss":loss,
-            "logits":reshaped_logits,
-            "hidden_states":outputs.hidden_states,
-            "attentions":outputs.attentions,
-        }
-        return ret
+    出力Tensorのサイズ
+    (max_num_rois)
+    """
+    roi_labels=torch.load(roi_labels_filepath)
+    roi_labels=torch.unsqueeze(roi_labels,1)  #(num_rois,1)
+    roi_labels=__trim_roi_tensor(roi_labels,max_num_rois)
+    roi_labels=torch.squeeze(roi_labels)  #(max_num_rois)
+    return roi_labels
